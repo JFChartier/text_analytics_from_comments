@@ -1,0 +1,182 @@
+library(magrittr)
+#library(data.table)
+library(stringr)
+library(quanteda)
+library(dplyr)
+library(qdapRegex)
+library(text2vec)
+
+
+text_preprocessing <- function(text_in_claims, myFrenchStopwords = myFrenchStopwords){
+  
+  preprocesCorpus=myTextCleaner(text = text_in_claims)
+  tokenizedCorpus=myTextTokenizer(text = preprocesCorpus, charNgram = 4, myFrenchStopwords = myFrenchStopwords)
+  vectorizedCorpus=myTextVectorizer(tokenizedCorpus = tokenizedCorpus)
+  return (list(tokenizedCorpus=tokenizedCorpus, vectorizedCorpus=vectorizedCorpus))
+}
+
+
+myTextVectorizer<-function(tokenizedCorpus, my_doc_count_min=0, my_doc_proportion_max=1){
+  
+  it_tokens = text2vec::itoken(tokenizedCorpus,
+                               preprocessor = identity,
+                               progressbar = FALSE)
+  
+  tokenizedCorpus=NULL
+  #gc()
+  
+  vocab_tokens = text2vec::create_vocabulary(it_tokens) %>% text2vec::prune_vocabulary(doc_count_min = my_doc_count_min, doc_proportion_max = my_doc_proportion_max)
+  
+  dtm_tokens= text2vec::create_dtm(it_tokens, text2vec::vocab_vectorizer(vocab_tokens)) %>% text2vec::normalize(., norm = "l2")
+  
+  return (dtm_tokens)
+  
+}
+
+
+myTextTokenizer<-function(text, charNgram=4, myFrenchStopwords = NULL, to_stemm = T, language="fr"){
+  
+  #text=unique_word_in_comments
+  #text=comments_from_agents$Commentaires_de_lagent
+  
+  # ce tokeniseur est fait a l'origine pour l'anglais
+  tokenizedCorpus= quanteda::tokens(text, what="word", remove_punct = TRUE, remove_numbers = TRUE, remove_separators = TRUE, split_hyphens = TRUE, remove_symbols=TRUE, remove_url = TRUE)
+  
+  # split token with "'"
+  ## pour les mots anglais cette fonction n'a pas le meme sens
+  tokenizedCorpus=lapply(tokenizedCorpus, function(x){stringr::str_split(string = x, pattern = "'") %>% unlist()}) %>%  quanteda::as.tokens(.)
+  
+  
+  
+  
+  if (is.null(myFrenchStopwords) == F){
+    myStopWords=unique(quanteda::stopwords("fr"))
+    myStopWords<-c(myStopWords, myFrenchStopwords) %>% unique(.) %>% tolower()
+  
+    # filtrer selon un antidictionnaire et singleton
+    tokenizedCorpus=quanteda::tokens_remove(tokenizedCorpus, case_insensitive = F, valuetype = "glob", pattern=myStopWords, min_nchar=3)
+  }
+  
+  #racinisation
+  if (to_stemm == T){
+    tokenizedCorpus=quanteda::tokens_wordstem(tokenizedCorpus, language = language)
+  }
+  
+  
+  # remove accents
+  # tokenizedCorpus=sapply(tokenizedCorpus, function(x){
+  #  stringi::stri_trans_general(str = x, id = "Latin-ASCII")
+  # }) %>% as.tokens(.)
+  
+  
+  tokenizedCorpus=quanteda::as.list(tokenizedCorpus)
+  
+  if (charNgram>0){
+    tokenizedCorpus=lapply(tokenizedCorpus, function(x) {
+      text2vec::char_tokenizer(strings = paste0(x, collapse = "~"), xptr=T) %>% unlist(., recursive = F, use.names = F) %>% quanteda::char_ngrams(., n = 4) %>% c(., (x))
+    })
+    
+  }
+  
+  return(tokenizedCorpus)
+  
+  
+}
+
+
+myTextCleaner<-function(text){
+  
+  preprocesCorpus = tolower(x = text) 
+  preprocesCorpus = gsub("[^[:alnum:] ]", " ", preprocesCorpus, ignore.case = F)
+  
+  preprocesCorpus = gsub('[[:digit:]]+', '', preprocesCorpus)
+  
+  preprocesCorpus=stringr::str_squish(preprocesCorpus)
+  return(preprocesCorpus)
+  
+}
+
+getLatentVectorsOfComments <- function(vectorizedCorpus, svd_v, svd_d, originalFeatures){
+  
+  vectorizedCorpus = quanteda::as.dfm(vectorizedCorpus)
+  vectorizedCorpus = quanteda::dfm_match(vectorizedCorpus, features = originalFeatures)
+  
+  #myReducedQueryVector = projetNewDocumentsIntoLsaTrainedModel(matrixV = svd_v, singularValues = svd_d,  newData = dfm.by.SINI_DT_SINI)
+  myReducedQueryVector <-  vectorizedCorpus %*% svd_v %*% solve(diag((svd_d)))
+  myReducedQueryVector=normRowVectors(myReducedQueryVector) %>% as.data.frame()
+  colnames(myReducedQueryVector) = paste(colnames(myReducedQueryVector), "transLSAofClaim", sep = "")
+  return (myReducedQueryVector)
+}
+
+#function to create a unit normed vector
+normVector <- function(x){
+  if(sum(x)==0)
+    return (x)
+  else 
+    return (x / sqrt(sum(x^2)))
+  
+}
+#function to norm many vectors
+normRowVectors<-function(m){
+  t(apply(m, MARGIN = 1, FUN = function(x) normVector(x)))
+}
+
+
+
+wordSelectionRoutine <- function(dfm, target, minDocFrequency = 0, coefficient = c("lr", "chi2")){
+  
+  if(minDocFrequency>0){
+    dfm = quanteda::dfm_trim(x = dfm, docfreq_type  ="count", min_docfreq = minDocFrequency)
+    
+  }
+  
+  specificityScore = quanteda::textstat_keyness(x = dfm, target=target, measure = coefficient)
+  return (specificityScore)
+  
+}
+
+get_most_relevant_words <- function(tokenizedCorpus=tokenizedCorpus, target=target, n_top_word=100, minDocFrequency=10){
+  #tokenizedCorpus = tokens_test
+  #target = (claims_2000_2017_select$EVENEMEN !="?") %>% .[1:5000]
+  #remove accents
+  tokenizedCorpus=sapply(tokenizedCorpus, function(x){
+    stringi::stri_trans_general(str = x, id = "Latin-ASCII")
+  })
+  
+  vectorizedCorpus=myTextVectorizer(tokenizedCorpus = tokenizedCorpus, my_doc_count_min = minDocFrequency, my_doc_proportion_max = length(tokenizedCorpus)/3)
+  vectorizedCorpus = quanteda::as.dfm(vectorizedCorpus)
+  specificities = wordSelectionRoutine(dfm = vectorizedCorpus, target = target, minDocFrequency = minDocFrequency, coefficient = "lr")
+  
+  topWords = specificities %>% subset(., p < 0.001) %>%  plyr::arrange(., desc(G2)) %>% .[1:n_top_word, c("feature")]
+  topWords= topWords[!is.na(topWords)]
+  return(topWords$feature) 
+  
+  #vectorizedCorpus.keep = quanteda::dfm_keep(vectorizedCorpus, pattern=topWords, valuetype="fixed") %>% quanteda::dfm_weight(., "boolean") #%>% ifelse(is_greater_than(0), yes = 1, no = 0)
+  # 
+  # # super lent, faut trouver une autre solution
+  # #x = lapply(1:ncol(vectorizedCorpus.keep), function(i) factor(vectorizedCorpus.keep[,i]))
+  # 
+  # # formate la graphie des mots
+  # w = quanteda::convert(vectorizedCorpus.keep, "data.frame")
+  # w$doc_id=NULL
+  # #w = data.table::setDT(w)
+  # 
+  # colnames(w) = paste("wordSpec_", colnames(w), sep = "")
+  # 
+  # return(w)
+}
+
+
+
+
+getLatentVectorsOfComments <- function(vectorizedCorpus, svd_v, svd_d, originalFeatures){
+  
+  vectorizedCorpus = quanteda::as.dfm(vectorizedCorpus)
+  vectorizedCorpus = quanteda::dfm_match(vectorizedCorpus, features = originalFeatures)
+  
+  #myReducedQueryVector = projetNewDocumentsIntoLsaTrainedModel(matrixV = svd_v, singularValues = svd_d,  newData = dfm.by.SINI_DT_SINI)
+  myReducedQueryVector <-  vectorizedCorpus %*% svd_v %*% solve(diag((svd_d)))
+  myReducedQueryVector=normRowVectors(myReducedQueryVector) %>% as.data.frame()
+  colnames(myReducedQueryVector) = paste(colnames(myReducedQueryVector), "transLSAofClaim", sep = "")
+  return (myReducedQueryVector)
+}
