@@ -34,7 +34,7 @@ myTextVectorizer<-function(tokenizedCorpus, my_doc_count_min=0, my_doc_proportio
 }
 
 
-myTextTokenizer<-function(text, charNgram=4, myFrenchStopwords = NULL, to_stemm = T, language="fr"){
+myTextTokenizer<-function(text, charNgram=4, myFrenchStopwords = NULL, to_stemm = T, language="fr", spelling_checker = T){
   
   #text=unique_word_in_comments
   #text=comments_from_agents$Commentaires_de_lagent
@@ -50,12 +50,34 @@ myTextTokenizer<-function(text, charNgram=4, myFrenchStopwords = NULL, to_stemm 
   
   
   if (is.null(myFrenchStopwords) == F){
-    myStopWords=unique(quanteda::stopwords("fr"))
+    myStopWords=unique(quanteda::stopwords(language))
     myStopWords<-c(myStopWords, myFrenchStopwords) %>% unique(.) %>% tolower()
   
     # filtrer selon un antidictionnaire et singleton
     tokenizedCorpus=quanteda::tokens_remove(tokenizedCorpus, case_insensitive = F, valuetype = "glob", pattern=myStopWords, min_nchar=3)
   }
+  
+  if (spelling_checker == T){
+    dic_speller = ifelse (test = language == "fr", yes = "fr_FR", "en_US")
+    
+    tokenizedCorpus_corrected = spelling_correcter(tokenizedCorpus = tokenizedCorpus[1:10], dic_speller = dic_speller)
+    
+    
+    
+    tokenizedCorpus_corrected = lapply(tokenizedCorpus[1:10], function(x){
+      x = tokenizedCorpus[[2]]
+      correct_spelling = hunspell::hunspell_check(words = x, dict = dic_speller)
+      x[!correct_spelling] = hunspell::hunspell_suggest(x[!correct_spelling], dict = dic_speller)
+      return(x)
+    })
+    
+    
+    
+    
+    
+  }
+  
+  
   
   #racinisation
   if (to_stemm == T){
@@ -81,6 +103,36 @@ myTextTokenizer<-function(text, charNgram=4, myFrenchStopwords = NULL, to_stemm 
   return(tokenizedCorpus)
   
   
+}
+
+spelling_correcter <- function(tokenizedCorpus, dic_speller = "fr_FR") {
+  
+  #tokenizedCorpus <- quanteda::tokens(tokenizedCorpus)
+  
+  # extract types to only work on them
+  types <- quanteda::types(tokenizedCorpus)
+  
+  # spelling
+  correct <- hunspell::hunspell_check(words = as.character(types), dict = dic_speller)
+  
+  pattern <- types[!correct]
+  replacement <- sapply(hunspell::hunspell_suggest(pattern, dict = dic_speller), FUN = "[", 1)
+  
+  types <- stringi::stri_replace_all_fixed(types, pattern, replacement, vectorize_all = FALSE)
+  
+  
+  # replace original tokens
+  tokenizedCorpus_new <- quanteda::tokens_replace(tokenizedCorpus, quanteda::types(tokenizedCorpus), as.character(types), valuetype = "fixed")
+  
+  #ajouter les tokens suspicieux
+  lapply(1:length(tokenizedCorpus_new), function(i){
+    c(tokenizedCorpus_new[[i]], tokenizedCorpus[[i]])
+  })
+  
+  
+  #sent_t_new <- quanteda::tokens_remove(sent_t_new, pattern = "NULL", valuetype = "fixed")
+  
+  return(tokenizedCorpus_new)
 }
 
 

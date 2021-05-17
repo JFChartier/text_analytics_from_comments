@@ -49,11 +49,20 @@ comments_from_agents = data.table::fread("~/datalab-nlp/JF Chartier/Data/text_an
 
 # prétraitement des commentaires
 ```{r}
+#french_dic = dictionary("~/.config/rstudio/dictionaries/languages-system/fr_FR.dic")
+#hunspell::list_dictionaries()
+
+
+
+
 comments_from_agents = comments_from_agents[comments_from_agents$Langue == "Français", ]
 comments_from_agents = comments_from_agents[nchar(comments_from_agents$Commentaires_de_lagent) > 3 , ]
 
 
 text_preprocessing_results = text_preprocessing(text_in_claims = comments_from_agents$Commentaires_de_lagent, myFrenchStopwords = myFrenchStopwords)
+
+
+
 
 reduced_comments_space = getLatentVectorsOfComments(vectorizedCorpus = text_preprocessing_results$vectorizedCorpus, svd_v = svdFromWiki300$v, svd_d = svdFromWiki300$d, originalFeatures = svdFromWiki300$original.features)
   
