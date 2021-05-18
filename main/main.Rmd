@@ -53,15 +53,11 @@ comments_from_agents = data.table::fread("~/datalab-nlp/JF Chartier/Data/text_an
 #hunspell::list_dictionaries()
 
 
-
-
 comments_from_agents = comments_from_agents[comments_from_agents$Langue == "Français", ]
 comments_from_agents = comments_from_agents[nchar(comments_from_agents$Commentaires_de_lagent) > 3 , ]
 
 
-text_preprocessing_results = text_preprocessing(text_in_claims = comments_from_agents$Commentaires_de_lagent, myFrenchStopwords = myFrenchStopwords)
-
-
+text_preprocessing_results = text_preprocessing(text_in_claims = comments_from_agents$Commentaires_de_lagent, myFrenchStopwords = myFrenchStopwords, my_doc_count_min = 1, my_doc_proportion_max = 1, to_stemm = T, language = "fr", spelling_checker = F, charNgram = 4)
 
 
 reduced_comments_space = getLatentVectorsOfComments(vectorizedCorpus = text_preprocessing_results$vectorizedCorpus, svd_v = svdFromWiki300$v, svd_d = svdFromWiki300$d, originalFeatures = svdFromWiki300$original.features)
@@ -69,7 +65,7 @@ reduced_comments_space = getLatentVectorsOfComments(vectorizedCorpus = text_prep
 ```
 
 
-
+# Prétraitement des catégories
 ```{r}
 categorie_appel = comments_from_agents$Categorie_dappel %>% tolower() %>% stringr::str_squish()
 # filtrer les categorie rares
@@ -85,12 +81,13 @@ rownames(reduced_categories_space) = vector_of_categorieAppel@Dimnames$docs
 ```
 
 
+# Prétraitement des mots
 ```{r}
 
-unique_word_in_comments = myTextCleaner(comments_from_agents$Commentaires_de_lagent) %>% myTextTokenizer(text = ., charNgram = 0, myFrenchStopwords = myFrenchStopwords, to_stemm = F) %>% unlist() %>% unique()
+unique_word_in_comments = myTextCleaner(comments_from_agents$Commentaires_de_lagent) %>% myTextTokenizer(text = ., charNgram = 0, myFrenchStopwords = myFrenchStopwords, to_stemm = F, language = "fr", spelling_checker = F) %>% unlist() %>% unique()
 
 
-unique_word_preprocessed = text_preprocessing(text_in_claims = unique_word_in_comments, myFrenchStopwords = NULL)
+unique_word_preprocessed = sapply(unique_word_in_comments, function(x) paste("dummy", x, "dummy", sep = " ")) %>% text_preprocessing(text_in_claims = ., myFrenchStopwords = myFrenchStopwords, my_doc_count_min = 2, my_doc_proportion_max = .9, to_stemm = F, language = "fr", spelling_checker = F, charNgram = 4)
 
 
 reduced_word_space = getLatentVectorsOfComments(vectorizedCorpus = unique_word_preprocessed$vectorizedCorpus, svd_v = svdFromWiki300$v, svd_d = svdFromWiki300$d, originalFeatures = svdFromWiki300$original.features)
@@ -101,7 +98,9 @@ rownames(reduced_word_space) = unique_word_in_comments
 
 ```{r}
 
-similarity_between_cat_word=text2vec::sim2(x = as.matrix(reduced_categories_space), y = as.matrix(reduced_word_space), method = "cosine", norm = "none") #%>% set_rownames(dat)
+similarity_between_cat_word=text2vec::sim2(x = as.matrix(reduced_categories_space), y = as.matrix(reduced_word_space), method = "cosine", norm = "none") #%>% 
+View(t(similarity_between_cat_word), title = "~")
+#set_rownames(dat)
 
 ```
 # Show result

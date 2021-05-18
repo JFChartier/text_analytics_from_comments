@@ -7,11 +7,11 @@ library(qdapRegex)
 library(text2vec)
 
 
-text_preprocessing <- function(text_in_claims, myFrenchStopwords = myFrenchStopwords){
+text_preprocessing <- function(text_in_claims, myFrenchStopwords = myFrenchStopwords, my_doc_count_min=2, my_doc_proportion_max=1, to_stemm = T, language=c("fr", "en"), spelling_checker=T, charNgram = 4){
   
   preprocesCorpus=myTextCleaner(text = text_in_claims)
-  tokenizedCorpus=myTextTokenizer(text = preprocesCorpus, charNgram = 4, myFrenchStopwords = myFrenchStopwords)
-  vectorizedCorpus=myTextVectorizer(tokenizedCorpus = tokenizedCorpus)
+  tokenizedCorpus=myTextTokenizer(text = preprocesCorpus, charNgram = charNgram, myFrenchStopwords = myFrenchStopwords, to_stemm = to_stemm, language = language, spelling_checker = spelling_checker)
+  vectorizedCorpus=myTextVectorizer(tokenizedCorpus = tokenizedCorpus, my_doc_count_min = my_doc_count_min, my_doc_proportion_max = my_doc_proportion_max)
   return (list(tokenizedCorpus=tokenizedCorpus, vectorizedCorpus=vectorizedCorpus))
 }
 
@@ -47,8 +47,6 @@ myTextTokenizer<-function(text, charNgram=4, myFrenchStopwords = NULL, to_stemm 
   tokenizedCorpus=lapply(tokenizedCorpus, function(x){stringr::str_split(string = x, pattern = "'") %>% unlist()}) %>%  quanteda::as.tokens(.)
   
   
-  
-  
   if (is.null(myFrenchStopwords) == F){
     myStopWords=unique(quanteda::stopwords(language))
     myStopWords<-c(myStopWords, myFrenchStopwords) %>% unique(.) %>% tolower()
@@ -60,23 +58,16 @@ myTextTokenizer<-function(text, charNgram=4, myFrenchStopwords = NULL, to_stemm 
   if (spelling_checker == T){
     dic_speller = ifelse (test = language == "fr", yes = "fr_FR", "en_US")
     
-    tokenizedCorpus_corrected = spelling_correcter(tokenizedCorpus = tokenizedCorpus[1:10], dic_speller = dic_speller)
-    
-    
-    
-    tokenizedCorpus_corrected = lapply(tokenizedCorpus[1:10], function(x){
-      x = tokenizedCorpus[[2]]
-      correct_spelling = hunspell::hunspell_check(words = x, dict = dic_speller)
-      x[!correct_spelling] = hunspell::hunspell_suggest(x[!correct_spelling], dict = dic_speller)
-      return(x)
-    })
-    
-    
-    
-    
-    
+    tokenizedCorpus = spelling_correcter(tokenizedCorpus = tokenizedCorpus, dic_speller = dic_speller)
   }
   
+  if (is.null(myFrenchStopwords) == F){
+    myStopWords=unique(quanteda::stopwords(language))
+    myStopWords<-c(myStopWords, myFrenchStopwords) %>% unique(.) %>% tolower()
+    
+    # filtrer selon un antidictionnaire et singleton
+    tokenizedCorpus=quanteda::tokens_remove(tokenizedCorpus, case_insensitive = F, valuetype = "glob", pattern=myStopWords, min_nchar=3)
+  }
   
   
   #racinisation
@@ -109,31 +100,42 @@ spelling_correcter <- function(tokenizedCorpus, dic_speller = "fr_FR") {
   
   #tokenizedCorpus <- quanteda::tokens(tokenizedCorpus)
   
+  type_freq = quanteda::featfreq(quanteda::dfm(tokenizedCorpus, tolower =F, valuetype = "fixed"))
+  
   # extract types to only work on them
-  types <- quanteda::types(tokenizedCorpus)
+  types <- names(type_freq)
   
   # spelling
-  correct <- hunspell::hunspell_check(words = as.character(types), dict = dic_speller)
+  correct <- hunspell::hunspell_check(words = (types), dict = dic_speller)
   
-  pattern <- types[!correct]
-  replacement <- sapply(hunspell::hunspell_suggest(pattern, dict = dic_speller), FUN = "[", 1)
+  #find find_approved_words, i.e. more frequent than 2
+  approuved_words = (type_freq > 2) & !correct
   
-  types <- stringi::stri_replace_all_fixed(types, pattern, replacement, vectorize_all = FALSE)
+  pattern <- types[!correct & !approuved_words]
+  replacement <- sapply(hunspell::hunspell_suggest(pattern, dict = dic_speller), function(x){x[1]})
+  # if no replacement available, keep original
+  replacement = ifelse(test = is.na(replacement), yes = pattern, no = replacement)
+  
+  
+  types <- stringi::stri_replace_all_fixed(str = types, pattern = pattern, replacement = replacement, vectorize_all = F)
   
   
   # replace original tokens
-  tokenizedCorpus_new <- quanteda::tokens_replace(tokenizedCorpus, quanteda::types(tokenizedCorpus), as.character(types), valuetype = "fixed")
+  tokenizedCorpus_new <- quanteda::tokens_replace(x = tokenizedCorpus, pattern = quanteda::types(tokenizedCorpus), replacement = as.character(types), valuetype = "fixed")
+  #tokenizedCorpus_new <- quanteda::tokens_remove(sent_t_new, pattern = "NULL", valuetype = "fixed")
   
-  #ajouter les tokens suspicieux
-  lapply(1:length(tokenizedCorpus_new), function(i){
-    c(tokenizedCorpus_new[[i]], tokenizedCorpus[[i]])
-  })
+  # #ajouter les tokens suspicieux
+  # lapply(1:2, function(i){
+  #   c(tokenizedCorpus_new[[i]], tokenizedCorpus[[i]])
+  # })
   
   
   #sent_t_new <- quanteda::tokens_remove(sent_t_new, pattern = "NULL", valuetype = "fixed")
   
   return(tokenizedCorpus_new)
 }
+
+
 
 
 myTextCleaner<-function(text){
