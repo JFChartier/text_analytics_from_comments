@@ -27,7 +27,7 @@ myTextVectorizer<-function(tokenizedCorpus, my_doc_count_min=0, my_doc_proportio
   
   vocab_tokens = text2vec::create_vocabulary(it_tokens) %>% text2vec::prune_vocabulary(doc_count_min = my_doc_count_min, doc_proportion_max = my_doc_proportion_max)
   
-  dtm_tokens= text2vec::create_dtm(it_tokens, text2vec::vocab_vectorizer(vocab_tokens)) %>% text2vec::normalize(., norm = "l2")
+  dtm_tokens= text2vec::create_dtm(it_tokens, text2vec::vocab_vectorizer(vocab_tokens)) #%>% text2vec::normalize(., norm = "l2")
   
   return (dtm_tokens)
   
@@ -179,45 +179,31 @@ normRowVectors<-function(m){
 
 wordSelectionRoutine <- function(dfm, target, minDocFrequency = 0, coefficient = c("lr", "chi2")){
   
-  if(minDocFrequency>0){
-    dfm = quanteda::dfm_trim(x = dfm, docfreq_type  ="count", min_docfreq = minDocFrequency)
-    
-  }
   
   specificityScore = quanteda::textstat_keyness(x = dfm, target=target, measure = coefficient)
   return (specificityScore)
   
 }
 
-get_most_relevant_words <- function(tokenizedCorpus=tokenizedCorpus, target=target, n_top_word=100, minDocFrequency=10){
+get_most_relevant_words <- function(tokenizedCorpus=tokenizedCorpus, target=target, minDocFrequency=1, coefficient = c("lr", "chi2"), min_specificity_score = 0, p_value = 0.01){
   #tokenizedCorpus = tokens_test
   #target = (claims_2000_2017_select$EVENEMEN !="?") %>% .[1:5000]
   #remove accents
-  tokenizedCorpus=sapply(tokenizedCorpus, function(x){
-    stringi::stri_trans_general(str = x, id = "Latin-ASCII")
-  })
+  # tokenizedCorpus=sapply(tokenizedCorpus, function(x){
+  #   stringi::stri_trans_general(str = x, id = "Latin-ASCII")
+  # })
   
-  vectorizedCorpus=myTextVectorizer(tokenizedCorpus = tokenizedCorpus, my_doc_count_min = minDocFrequency, my_doc_proportion_max = length(tokenizedCorpus)/3)
-  vectorizedCorpus = quanteda::as.dfm(vectorizedCorpus)
-  specificities = wordSelectionRoutine(dfm = vectorizedCorpus, target = target, minDocFrequency = minDocFrequency, coefficient = "lr")
+  vectorizedCorpus=quanteda::dfm(x = quanteda::tokens(tokenizedCorpus), tolower = F, stem = F)
+  vectorizedCorpus = quanteda::dfm_trim(vectorizedCorpus, min_docfreq = minDocFrequency)
   
-  topWords = specificities %>% subset(., p < 0.001) %>%  plyr::arrange(., desc(G2)) %>% .[1:n_top_word, c("feature")]
-  topWords= topWords[!is.na(topWords)]
-  return(topWords$feature) 
+  #vectorizedCorpus = quanteda::as.dfm(vectorizedCorpus)
+  specificities = quanteda::textstat_keyness(x = vectorizedCorpus, target=target, measure = coefficient, sort=T)
+  specificities = (specificities[, 2] > min_specificity_score & specificities[, 3] <= p_value) %>% specificities[., ]
   
-  #vectorizedCorpus.keep = quanteda::dfm_keep(vectorizedCorpus, pattern=topWords, valuetype="fixed") %>% quanteda::dfm_weight(., "boolean") #%>% ifelse(is_greater_than(0), yes = 1, no = 0)
-  # 
-  # # super lent, faut trouver une autre solution
-  # #x = lapply(1:ncol(vectorizedCorpus.keep), function(i) factor(vectorizedCorpus.keep[,i]))
-  # 
-  # # formate la graphie des mots
-  # w = quanteda::convert(vectorizedCorpus.keep, "data.frame")
-  # w$doc_id=NULL
-  # #w = data.table::setDT(w)
-  # 
-  # colnames(w) = paste("wordSpec_", colnames(w), sep = "")
-  # 
-  # return(w)
+  #topWords = specificities %>% subset(., p < 0.001) %>%  plyr::arrange(., desc(G2)) %>% .[1:n_top_word, c("feature")]
+  #topWords= topWords[!is.na(topWords)]
+  #return(topWords$feature) 
+  return(unlist(specificities[,1]))
 }
 
 
