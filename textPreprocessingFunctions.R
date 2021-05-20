@@ -155,7 +155,6 @@ getLatentVectorsOfComments <- function(vectorizedCorpus, svd_v, svd_d, originalF
   vectorizedCorpus = quanteda::as.dfm(vectorizedCorpus)
   vectorizedCorpus = quanteda::dfm_match(vectorizedCorpus, features = originalFeatures)
   
-  #myReducedQueryVector = projetNewDocumentsIntoLsaTrainedModel(matrixV = svd_v, singularValues = svd_d,  newData = dfm.by.SINI_DT_SINI)
   myReducedQueryVector <-  vectorizedCorpus %*% svd_v %*% solve(diag((svd_d)))
   myReducedQueryVector=normRowVectors(myReducedQueryVector) %>% as.data.frame()
   colnames(myReducedQueryVector) = paste(colnames(myReducedQueryVector), "transLSAofClaim", sep = "")

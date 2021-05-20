@@ -74,11 +74,11 @@ categorie_appel[categorie_appel %in% categorie_appel_freq] = "category_less_freq
 
 tokens_from_cat = lapply(unique(categorie_appel), function(x){
   #x = unique(categorie_appel)[1]
-  print(x)
-  specificities = get_most_relevant_words(tokenizedCorpus = text_preprocessing_results$tokenizedCorpus, target = categorie_appel==x, minDocFrequency = 0, coefficient = "lr", min_specificity_score = 0)
+  #print(x)
+  #specificities = get_most_relevant_words(tokenizedCorpus = text_preprocessing_results$tokenizedCorpus, target = categorie_appel==x, minDocFrequency = 0, coefficient = "lr", min_specificity_score = 0)
   
   tokens_in_cat = c(text_preprocessing_results$tokenizedCorpus[categorie_appel==x]) %>% unlist()
-  tokens_in_cat = tokens_in_cat[tokens_in_cat %in% specificities]
+  #tokens_in_cat = tokens_in_cat[tokens_in_cat %in% specificities]
   return(tokens_in_cat)
 })
 
@@ -92,14 +92,13 @@ tokens_from_cat = lapply(unique(categorie_appel), function(x){
 
 
 
-vector_of_categorieAppel = myTextVectorizer(tokenizedCorpus = (tokens_from_cat), my_doc_count_min = 0, my_doc_proportion_max = 1) #%>% scale(., center = T, scale = F)
+#vector_of_categorieAppel = myTextVectorizer(tokenizedCorpus = (tokens_from_cat), my_doc_count_min = 0, my_doc_proportion_max = 1) %>% set_rownames(unique(categorie_appel)) #%>% scale(., center = T, scale = F)
 
-#vector_of_categorieAppel = quanteda::dfm_group(text_preprocessing_results$vectorizedCorpus %>% quanteda::as.dfm(), groups= categorie_appel)
+vector_of_categorieAppel = quanteda::dfm_group(text_preprocessing_results$vectorizedCorpus %>% quanteda::as.dfm(), groups= categorie_appel)
 
 reduced_categories_space = getLatentVectorsOfComments(vectorizedCorpus = vector_of_categorieAppel, svd_v = svdFromWiki300$v, svd_d = svdFromWiki300$d, originalFeatures = svdFromWiki300$original.features)
 
-rownames(reduced_categories_space) = unique(categorie_appel) #vector_of_categorieAppel@Dimnames$docs
-    
+
 ```
 
 
@@ -109,7 +108,7 @@ rownames(reduced_categories_space) = unique(categorie_appel) #vector_of_categori
 unique_word_in_comments = myTextCleaner(comments_from_agents$Commentaires_de_lagent) %>% myTextTokenizer(text = ., charNgram = 0, myFrenchStopwords = myFrenchStopwords, to_stemm = F, language = "fr", spelling_checker = F) %>% unlist() %>% unique()
 
 
-unique_word_preprocessed = text_preprocessing(text_in_claims = unique_word_in_comments, myFrenchStopwords = myFrenchStopwords, my_doc_count_min = 0, my_doc_proportion_max = 1, to_stemm = T, language = "fr", spelling_checker = F, charNgram = 4) #sapply(unique_word_in_comments, function(x) paste("dummy", x, "dummy", sep = " ")) %>% 
+unique_word_preprocessed = text_preprocessing(text_in_claims = unique_word_in_comments, myFrenchStopwords = NULL, my_doc_count_min = 0, my_doc_proportion_max = 1, to_stemm = T, language = "fr", spelling_checker = F, charNgram = 4) #sapply(unique_word_in_comments, function(x) paste("dummy", x, "dummy", sep = " ")) %>% 
 
 
 reduced_word_space = getLatentVectorsOfComments(vectorizedCorpus = unique_word_preprocessed$vectorizedCorpus, svd_v = svdFromWiki300$v, svd_d = svdFromWiki300$d, originalFeatures = svdFromWiki300$original.features)
@@ -120,9 +119,16 @@ rownames(reduced_word_space) = unique_word_in_comments
 # Comparaison entre mots et catégories
 ```{r}
 
-similarity_between_cat_word=text2vec::sim2(x = as.matrix(reduced_categories_space), y = as.matrix(reduced_word_space), method = "cosine", norm = "none") #%>% 
-View(t(similarity_between_cat_word), title = "spec6")
-#set_rownames(dat)
+similarity_between_cat_word=text2vec::sim2(x = as.matrix(reduced_word_space), y=as.matrix(reduced_categories_space), method = "cosine", norm = "none") #%>% 
+View((similarity_between_cat_word), title = "spec8")
+
+
+#View(t(similarity_between_cat_word) %>% set_colnames(rownames(similarity_between_cat_word)), title = "spec8")
+
+
+#DT::datatable(data.frame(similarity_between_cat_word), rownames = T, filter="none", selection="none", options = list(pageLength = 50, scrollX=T))
+
+
 
 ```
 
@@ -130,13 +136,13 @@ View(t(similarity_between_cat_word), title = "spec6")
 ```{r}
 
 similarity_between_comments_cat=text2vec::sim2(x = as.matrix(reduced_comments_space), y = as.matrix(reduced_categories_space), method = "cosine", norm = "none") 
-j= rownames(reduced_categories_space)=="brio" #"rap / reep" #"reee" #"rpe" #"brio"   #"rap / reep"
+j= colnames(similarity_between_comments_cat)== "rap / reep" #"reee" #"rpe" #"brio"   #"rap / reep"
 
 i=order(similarity_between_comments_cat[,j], decreasing = T)[1:100]
-result=data.frame(category=colnames(similarity_between_comments_cat)[j], similarity=similarity_between_comments_cat[i,j])
+#result=data.frame(category=colnames(similarity_between_comments_cat)[j], similarity=similarity_between_comments_cat[i,j])
 
 
-DT::datatable(data = data.frame(comments_from_agents[i,c("Categorie_dappel", "Commentaires_de_lagent")], similarity=similarity_between_comments_cat[i, j]), rownames = T, filter="none", selection="none", options = list(pageLength = 20, scrollX=T), caption=paste("Commentaires les plus similaire au code: ", rownames(reduced_categories_space)[j], ""))
+DT::datatable(data = data.frame(categorie_appel_clean = categorie_appel[i], comments_from_agents[i,c("Categorie_dappel", "Commentaires_de_lagent")], similarity=similarity_between_comments_cat[i, j]), rownames = T, filter="none", selection="none", options = list(pageLength = 20, scrollX=T), caption=paste("Commentaires les plus similaire au code: ", rownames(reduced_categories_space)[j], ""))
 ```
 
 # Comparaison entre mots et segments
@@ -165,3 +171,59 @@ DT::datatable(data = data.frame(comments_from_agents[i,c("Categorie_dappel", "Co
 
 
 Construire un LSA avec les données internes et concaténer les deux matrices!!!!!!!!!!1
+# LSA directement sur les commentaires
+```{r}
+svd_comments = RSpectra::svds(text_preprocessing_results$vectorizedCorpus %>% text2vec::normalize(., "l2"), k = 200)
+svd_comments$original.features = text_preprocessing_results$vectorizedCorpus %>% colnames()
+```
+
+
+```{r}
+reduced_categories_space_from_svdComments = getLatentVectorsOfComments(vectorizedCorpus = vector_of_categorieAppel, svd_v = svd_comments$v, svd_d = svd_comments$d, originalFeatures = svd_comments$original.features)
+
+reduced_word_space_from_svdComments = getLatentVectorsOfComments(vectorizedCorpus = unique_word_preprocessed$vectorizedCorpus, svd_v = svd_comments$v, svd_d = svd_comments$d, originalFeatures = svd_comments$original.features)
+rownames(reduced_word_space_from_svdComments) = unique_word_in_comments
+
+reduced_comments_space_from_svdComment = getLatentVectorsOfComments(vectorizedCorpus = text_preprocessing_results$vectorizedCorpus, svd_v = svd_comments$v, svd_d = svd_comments$d, originalFeatures = svd_comments$original.features)
+
+```
+
+```{r}
+similarity_between_cat_word_2=text2vec::sim2(x = as.matrix(reduced_word_space_from_svdComments), y=as.matrix(reduced_categories_space_from_svdComments), method = "cosine", norm = "none") #%>% 
+View((similarity_between_cat_word_2), title = "spec8_2")
+
+```
+
+# Comparaison entre catégorie et segments
+```{r}
+
+similarity_between_comments_cat_local=text2vec::sim2(x = as.matrix(reduced_comments_space_from_svdComment), y = as.matrix(reduced_categories_space_from_svdComments), method = "cosine", norm = "none") 
+j= colnames(similarity_between_comments_cat_local)== "reee" #"rpe" #"brio"   #"rap / reep"
+
+i=order(similarity_between_comments_cat_local[,j], decreasing = T)[1:100]
+#result=data.frame(category=colnames(similarity_between_comments_cat)[j], similarity=similarity_between_comments_cat[i,j])
+
+
+DT::datatable(data = data.frame(categorie_appel_clean = categorie_appel[i], comments_from_agents[i,c("Categorie_dappel", "Commentaires_de_lagent")], similarity=similarity_between_comments_cat_local[i, j]), rownames = T, filter="none", selection="none", options = list(pageLength = 20, scrollX=T), caption=paste("Commentaires les plus similaire au code: ", rownames(reduced_categories_space)[j], ""))
+```
+
+
+# Modèles combinées
+
+## Préparation des modèles
+```{r}
+v_appended = cbind(svd_comments$v, svdFromWiki300$v[svdFromWiki300$original.features %in% svd_comments$original.features, ])
+
+rownames(svd_comments$v) = svd_comments$original.features
+rownames(svdFromWiki300$v) = svdFromWiki300$original.features
+
+v_appended = merge(x = svd_comments$v, by="row.names", all.x = T, y = svdFromWiki300$v)
+features_appended = v_appended$Row.names
+v_appended$Row.names=NULL
+d_appended = c(svd_comments$d, svdFromWiki300$d)
+
+svd_appended = list(d = d_appended, v=v_appended, original.features = features_appended)
+
+
+```
+
