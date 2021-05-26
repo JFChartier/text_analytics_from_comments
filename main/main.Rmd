@@ -31,14 +31,19 @@ library(text2vec)
 
 
 
-source("textPreprocessingFunctions.R")
+#source("textPreprocessingFunctions.R")
+source("~/datalab-nlp/JF Chartier/SemanticModels/TextModeling/LSA/textPreprocessingFunctions.R")
 
 ```
 
-# Data
+Préparation des données
+
+## Lecture des données
 ```{r}
 
-svdFromWiki300 = readRDS("~/datalab-nlp/JF Chartier/Data/SemanticModels/matrixV_svdFromWiki300.rds")
+#svdFromWiki300 = readRDS("~/datalab-nlp/JF Chartier/Data/SemanticModels/matrixV_svdFromWiki300.rds")
+
+svdFromWiki300 = readRDS("~/datalab-nlp/JF Chartier/Data/SemanticModels/FrenchWikiTokensAnd4grams300SVD.rds")
 
 myFrenchStopwords = data.table::fread("~/datalab-nlp/JF Chartier/Data/SemanticModels/antidictionnaireFrancais.csv", header = F, encoding = "UTF-8")
 
@@ -47,7 +52,7 @@ comments_from_agents = data.table::fread("~/datalab-nlp/JF Chartier/Data/text_an
 ```
 
 
-# prétraitement des commentaires
+## Prétraitement des commentaires
 ```{r}
 #french_dic = dictionary("~/.config/rstudio/dictionaries/languages-system/fr_FR.dic")
 #hunspell::list_dictionaries()
@@ -57,15 +62,12 @@ comments_from_agents = comments_from_agents[comments_from_agents$Langue == "Fran
 comments_from_agents = comments_from_agents[nchar(comments_from_agents$Commentaires_de_lagent) > 3 , ]
 
 
-text_preprocessing_results = text_preprocessing(text_in_claims = comments_from_agents$Commentaires_de_lagent, myFrenchStopwords = myFrenchStopwords, my_doc_count_min = 1, my_doc_proportion_max = 1, to_stemm = T, language = "fr", spelling_checker = F, charNgram = 4)
+text_preprocessing_results = text_preprocessing(text_in_claims = comments_from_agents$Commentaires_de_lagent, myFrenchStopwords = myFrenchStopwords, my_doc_count_min = 1, my_doc_proportion_max = 1, to_stemm = T, language = "fr", spelling_checker = F, charNgram = 4, remove_accent = T, min_token_length = 3)
 
-
-reduced_comments_space = getLatentVectorsOfComments(vectorizedCorpus = text_preprocessing_results$vectorizedCorpus, svd_v = svdFromWiki300$v, svd_d = svdFromWiki300$d, originalFeatures = svdFromWiki300$original.features)
-  
 ```
 
 
-# Prétraitement des catégories
+## Prétraitement des catégories
 ```{r}
 categorie_appel = comments_from_agents$Categorie_dappel %>% tolower() %>% stringr::str_squish()
 # filtrer les categorie rares
@@ -96,31 +98,41 @@ tokens_from_cat = lapply(unique(categorie_appel), function(x){
 
 vector_of_categorieAppel = quanteda::dfm_group(text_preprocessing_results$vectorizedCorpus %>% quanteda::as.dfm(), groups= categorie_appel)
 
-reduced_categories_space = getLatentVectorsOfComments(vectorizedCorpus = vector_of_categorieAppel, svd_v = svdFromWiki300$v, svd_d = svdFromWiki300$d, originalFeatures = svdFromWiki300$original.features)
+```
+
+## Prétraitement des mots
+```{r}
+
+unique_word_in_comments = myTextCleaner(comments_from_agents$Commentaires_de_lagent) %>% myTextTokenizer(text = ., charNgram = 0, myFrenchStopwords = myFrenchStopwords, to_stemm = F, language = "fr", spelling_checker = F, remove_accent = T, min_token_length = 3) %>% unlist() %>% unique()
+
+
+unique_word_preprocessed = text_preprocessing(text_in_claims = unique_word_in_comments, myFrenchStopwords = NULL, my_doc_count_min = 0, my_doc_proportion_max = 1, to_stemm = T, language = "fr", spelling_checker = F, charNgram = 4, remove_accent = F, min_token_length = 0) #sapply(unique_word_in_comments, function(x) paste("dummy", x, "dummy", sep = " ")) %>% 
 
 
 ```
 
 
-# Prétraitement des mots
+
+# Modèle LSA basé sur Wikipédia
+
+## Application de la LSA
 ```{r}
 
-unique_word_in_comments = myTextCleaner(comments_from_agents$Commentaires_de_lagent) %>% myTextTokenizer(text = ., charNgram = 0, myFrenchStopwords = myFrenchStopwords, to_stemm = F, language = "fr", spelling_checker = F) %>% unlist() %>% unique()
+reduced_categories_space = getLatentVectorsOfComments(vectorizedCorpus = vector_of_categorieAppel, svd_v = svdFromWiki300$v, svd_d = svdFromWiki300$d, originalFeatures = svdFromWiki300$original.features)
 
-
-unique_word_preprocessed = text_preprocessing(text_in_claims = unique_word_in_comments, myFrenchStopwords = NULL, my_doc_count_min = 0, my_doc_proportion_max = 1, to_stemm = T, language = "fr", spelling_checker = F, charNgram = 4) #sapply(unique_word_in_comments, function(x) paste("dummy", x, "dummy", sep = " ")) %>% 
-
+reduced_comments_space = getLatentVectorsOfComments(vectorizedCorpus = text_preprocessing_results$vectorizedCorpus, svd_v = svdFromWiki300$v, svd_d = svdFromWiki300$d, originalFeatures = svdFromWiki300$original.features)
+ 
 
 reduced_word_space = getLatentVectorsOfComments(vectorizedCorpus = unique_word_preprocessed$vectorizedCorpus, svd_v = svdFromWiki300$v, svd_d = svdFromWiki300$d, originalFeatures = svdFromWiki300$original.features)
 rownames(reduced_word_space) = unique_word_in_comments
 
 ```
 
-# Comparaison entre mots et catégories
+## Comparaison entre mots et catégories
 ```{r}
 
 similarity_between_cat_word=text2vec::sim2(x = as.matrix(reduced_word_space), y=as.matrix(reduced_categories_space), method = "cosine", norm = "none") #%>% 
-View((similarity_between_cat_word), title = "spec8")
+View((similarity_between_cat_word), title = "LSA_wikipedia")
 
 
 #View(t(similarity_between_cat_word) %>% set_colnames(rownames(similarity_between_cat_word)), title = "spec8")
@@ -132,11 +144,11 @@ View((similarity_between_cat_word), title = "spec8")
 
 ```
 
-# Comparaison entre catégorie et segments
+## Comparaison entre catégories et commentaires
 ```{r}
 
 similarity_between_comments_cat=text2vec::sim2(x = as.matrix(reduced_comments_space), y = as.matrix(reduced_categories_space), method = "cosine", norm = "none") 
-j= colnames(similarity_between_comments_cat)== "rap / reep" #"reee" #"rpe" #"brio"   #"rap / reep"
+j= colnames(similarity_between_comments_cat)=="reee" #"rap / reep" #"reee" #"rpe" #"brio"   #"rap / reep"
 
 i=order(similarity_between_comments_cat[,j], decreasing = T)[1:100]
 #result=data.frame(category=colnames(similarity_between_comments_cat)[j], similarity=similarity_between_comments_cat[i,j])
@@ -145,14 +157,22 @@ i=order(similarity_between_comments_cat[,j], decreasing = T)[1:100]
 DT::datatable(data = data.frame(categorie_appel_clean = categorie_appel[i], comments_from_agents[i,c("Categorie_dappel", "Commentaires_de_lagent")], similarity=similarity_between_comments_cat[i, j]), rownames = T, filter="none", selection="none", options = list(pageLength = 20, scrollX=T), caption=paste("Commentaires les plus similaire au code: ", rownames(reduced_categories_space)[j], ""))
 ```
 
-# Comparaison entre mots et segments
+## Comparaison entre mots et commentaires
 ```{r}
-query = "remboursement"
+query = "crime police"
+# query = quanteda::tokens(query)
+# query=sapply(query, function(x){
+#      stringi::stri_trans_general(str = x, id = "Latin-ASCII")
+#     }) %>% as.list() %>% as.tokens(.)
 
-clean_query = myTextCleaner(query) %>% myTextTokenizer(text = ., charNgram = 0, myFrenchStopwords = myFrenchStopwords, to_stemm = F, language = "fr", spelling_checker = F) %>% unlist() %>% unique() %>% paste(., collapse = " ")
+clean_query = myTextCleaner(query) %>% myTextTokenizer(text = ., charNgram = 0, myFrenchStopwords = NULL, to_stemm = F, language = "fr", spelling_checker = F, remove_accent = T, min_token_length = 0) %>% unlist() %>% unique() %>% paste(., collapse = " ")
+
+#clean_query = myTextCleaner(query) %>% myQueryTokenizer(text = ., charNgram = 0, myFrenchStopwords = NULL, to_stemm = F, language = "fr", spelling_checker = F, remove_accent = T, min_token_length = 0) #%>% unlist() %>% unique() %>% paste(., collapse = " ")
 
 
-query_preprocessed = text_preprocessing(text_in_claims = clean_query, myFrenchStopwords = myFrenchStopwords, my_doc_count_min = 0, my_doc_proportion_max = 1, to_stemm = T, language = "fr", spelling_checker = F, charNgram = 4) #sapply(unique_word_in_comments, function(x) paste("dummy", x, "dummy", sep = " ")) %>% 
+#w = myTextTokenizer(text = clean_query, charNgram = 4, myFrenchStopwords = NULL, to_stemm = T, language = "fr", spelling_checker = F, remove_accent = T, min_token_length = 0)
+
+query_preprocessed = text_preprocessing(text_in_claims = clean_query, myFrenchStopwords = NULL, my_doc_count_min = 0, my_doc_proportion_max = 1, to_stemm = T, language = "fr", spelling_checker = F, charNgram = 4, remove_accent = T, min_token_length = 0) #sapply(unique_word_in_comments, function(x) paste("dummy", x, "dummy", sep = " ")) %>% 
 
 
 reduced_query_space = getLatentVectorsOfComments(vectorizedCorpus = query_preprocessed$vectorizedCorpus, svd_v = svdFromWiki300$v, svd_d = svdFromWiki300$d, originalFeatures = svdFromWiki300$original.features)
@@ -163,22 +183,21 @@ rownames(reduced_query_space) = query
 similarity_between_comments_query=text2vec::sim2(x = as.matrix(reduced_comments_space), y = as.matrix(reduced_query_space), method = "cosine", norm = "none") 
 
 i=order(similarity_between_comments_query[,1], decreasing = T)[1:1000]
-result=data.frame(category=colnames(similarity_between_comments_query), similarity=similarity_between_comments_query[i,])
+#result=data.frame(category=colnames(similarity_between_comments_query), similarity=similarity_between_comments_query[i,])
 
 
-DT::datatable(data = data.frame(comments_from_agents[i,c("Categorie_dappel", "Commentaires_de_lagent")], similarity=similarity_between_comments_query[i,1]), rownames = T, filter="none", selection="none", options = list(pageLength = 20, scrollX=T), caption=paste("Commentaires les plus similaires à la requête : ", query, ""))
+DT::datatable(data = data.frame(id=rownames(similarity_between_comments_query)[i], categorie_appel_clean = categorie_appel[i], comments_from_agents[i,c("Commentaires_de_lagent")], similarity=similarity_between_comments_query[i,1]), rownames = T, filter="none", selection="none", options = list(pageLength = 50, scrollX=T), caption=paste("Commentaires les plus similaires à la requête : ", query, ""))
 ```
 
 
-Construire un LSA avec les données internes et concaténer les deux matrices!!!!!!!!!!1
-# LSA directement sur les commentaires
+
+# Modèle LSA à partir des commentaires
+
+## Application de la LSA
 ```{r}
 svd_comments = RSpectra::svds(text_preprocessing_results$vectorizedCorpus %>% text2vec::normalize(., "l2"), k = 200)
 svd_comments$original.features = text_preprocessing_results$vectorizedCorpus %>% colnames()
-```
 
-
-```{r}
 reduced_categories_space_from_svdComments = getLatentVectorsOfComments(vectorizedCorpus = vector_of_categorieAppel, svd_v = svd_comments$v, svd_d = svd_comments$d, originalFeatures = svd_comments$original.features)
 
 reduced_word_space_from_svdComments = getLatentVectorsOfComments(vectorizedCorpus = unique_word_preprocessed$vectorizedCorpus, svd_v = svd_comments$v, svd_d = svd_comments$d, originalFeatures = svd_comments$original.features)
@@ -188,17 +207,18 @@ reduced_comments_space_from_svdComment = getLatentVectorsOfComments(vectorizedCo
 
 ```
 
+## Comparaison entre mots et catégories
 ```{r}
 similarity_between_cat_word_2=text2vec::sim2(x = as.matrix(reduced_word_space_from_svdComments), y=as.matrix(reduced_categories_space_from_svdComments), method = "cosine", norm = "none") #%>% 
-View((similarity_between_cat_word_2), title = "spec8_2")
+View((similarity_between_cat_word_2), title = "LSA_comments")
 
 ```
 
-# Comparaison entre catégorie et segments
+## Comparaison entre catégories et commentaires
 ```{r}
 
 similarity_between_comments_cat_local=text2vec::sim2(x = as.matrix(reduced_comments_space_from_svdComment), y = as.matrix(reduced_categories_space_from_svdComments), method = "cosine", norm = "none") 
-j= colnames(similarity_between_comments_cat_local)== "reee" #"rpe" #"brio"   #"rap / reep"
+j= colnames(similarity_between_comments_cat_local)=="reee" #"rap / reep" #"reee" #"rpe" #"brio"   #"rap / reep"
 
 i=order(similarity_between_comments_cat_local[,j], decreasing = T)[1:100]
 #result=data.frame(category=colnames(similarity_between_comments_cat)[j], similarity=similarity_between_comments_cat[i,j])
@@ -207,23 +227,110 @@ i=order(similarity_between_comments_cat_local[,j], decreasing = T)[1:100]
 DT::datatable(data = data.frame(categorie_appel_clean = categorie_appel[i], comments_from_agents[i,c("Categorie_dappel", "Commentaires_de_lagent")], similarity=similarity_between_comments_cat_local[i, j]), rownames = T, filter="none", selection="none", options = list(pageLength = 20, scrollX=T), caption=paste("Commentaires les plus similaire au code: ", rownames(reduced_categories_space)[j], ""))
 ```
 
+## Comparaison entre mots et commentaires
+```{r}
+query = "fraude"
 
-# Modèles combinées
+clean_query = myTextCleaner(query) %>% myTextTokenizer(text = ., charNgram = 0, myFrenchStopwords = NULL, to_stemm = F, language = "fr", spelling_checker = F, remove_accent = T, min_token_length = 0) %>% unlist() %>% unique() %>% paste(., collapse = " ")
+
+
+query_preprocessed = text_preprocessing(text_in_claims = clean_query, myFrenchStopwords = NULL, my_doc_count_min = 0, my_doc_proportion_max = 1, to_stemm = T, language = "fr", spelling_checker = F, charNgram = 4, remove_accent = T, min_token_length = 0) #sapply(unique_word_in_comments, function(x) paste("dummy", x, "dummy", sep = " ")) %>% 
+
+
+reduced_query_space_svdFromComments = getLatentVectorsOfComments(vectorizedCorpus = query_preprocessed$vectorizedCorpus, svd_v = svd_comments$v, svd_d = svd_comments$d, originalFeatures = svd_comments$original.features)
+rownames(reduced_query_space_svdFromComments) = query
+
+
+
+similarity_between_comments_query=text2vec::sim2(x = as.matrix(reduced_comments_space_from_svdComment), y = as.matrix(reduced_query_space_svdFromComments), method = "cosine", norm = "none") 
+
+i=order(similarity_between_comments_query[,1], decreasing = T)[1:1000]
+#result=data.frame(category=colnames(similarity_between_comments_query), similarity=similarity_between_comments_query[i,])
+
+
+DT::datatable(data = data.frame(id=rownames(similarity_between_comments_query)[i], categorie_appel_clean = categorie_appel[i], comments_from_agents[i,c("Commentaires_de_lagent")], similarity=similarity_between_comments_query[i,1]), rownames = T, filter="none", selection="none", options = list(pageLength = 20, scrollX=T), caption=paste("Commentaires les plus similaires à la requête : ", query, ""))
+```
+
+# Modèle LSA combinées
 
 ## Préparation des modèles
 ```{r}
-v_appended = cbind(svd_comments$v, svdFromWiki300$v[svdFromWiki300$original.features %in% svd_comments$original.features, ])
+#v_appended = cbind(svd_comments$v, svdFromWiki300$v[svdFromWiki300$original.features %in% svd_comments$original.features, ])
 
 rownames(svd_comments$v) = svd_comments$original.features
 rownames(svdFromWiki300$v) = svdFromWiki300$original.features
 
-v_appended = merge(x = svd_comments$v, by="row.names", all.x = T, y = svdFromWiki300$v)
+v_appended = merge(x = svd_comments$v, by="row.names", all.x = T, y = svdFromWiki300$v[,1:100], all.y=T, sort = FALSE)
+v_appended[is.na(v_appended)] = 0
+
 features_appended = v_appended$Row.names
 v_appended$Row.names=NULL
-d_appended = c(svd_comments$d, svdFromWiki300$d)
+#ici c'est très important de normer les vecteurs d, car il ont une magnitude très différente
+d_appended = c(normVector(svd_comments$d), normVector(svdFromWiki300$d[1:100]))
 
-svd_appended = list(d = d_appended, v=v_appended, original.features = features_appended)
-
+svd_appended = list(d = d_appended, v=as.matrix(v_appended), original.features = features_appended)
 
 ```
 
+## Application de la LSA
+```{r}
+# vectorizedCorpus = quanteda::as.dfm(vector_of_categorieAppel)
+# vectorizedCorpus = quanteda::dfm_match(vector_of_categorieAppel, features = svd_appended$original.features)
+#  myReducedQueryVector <-  vectorizedCorpus %*% svd_appended$v %*% solve(diag((svd_appended$d)))  
+# 
+
+reduced_categories_space_from_svdAppended = getLatentVectorsOfComments(vectorizedCorpus = vector_of_categorieAppel, svd_v = svd_appended$v, svd_d = svd_appended$d, originalFeatures = svd_appended$original.features)
+
+reduced_word_space_from_svdAppended = getLatentVectorsOfComments(vectorizedCorpus = unique_word_preprocessed$vectorizedCorpus, svd_v = svd_appended$v, svd_d = svd_appended$d, originalFeatures = svd_appended$original.features)
+rownames(reduced_word_space_from_svdAppended) = unique_word_in_comments
+
+reduced_comments_space_from_svdAppended = getLatentVectorsOfComments(vectorizedCorpus = text_preprocessing_results$vectorizedCorpus, svd_v = svd_appended$v, svd_d = svd_appended$d, originalFeatures = svd_appended$original.features)
+
+```
+
+## Comparaison entre mots et catégories
+```{r}
+similarity_between_cat_word_append=text2vec::sim2(x = as.matrix(reduced_word_space_from_svdAppended), y=as.matrix(reduced_categories_space_from_svdAppended), method = "cosine", norm = "none") #%>% 
+View((similarity_between_cat_word_append), title = "appended_LSA")
+
+```
+
+## Comparaison entre catégories et commentaires
+```{r}
+
+similarity_between_comments_cat_appended=text2vec::sim2(x = as.matrix(reduced_comments_space_from_svdAppended), y = as.matrix(reduced_categories_space_from_svdAppended), method = "cosine", norm = "none") 
+j= colnames(similarity_between_comments_cat_appended)== "reee"  #"rap / reep" #"reee" #"rpe" #"brio"   #"rap / reep"
+
+i=order(similarity_between_comments_cat_appended[,j], decreasing = T)[1:100]
+#result=data.frame(category=colnames(similarity_between_comments_cat)[j], similarity=similarity_between_comments_cat[i,j])
+
+
+DT::datatable(data = data.frame(categorie_appel_clean = categorie_appel[i], comments_from_agents[i,c("Categorie_dappel", "Commentaires_de_lagent")], similarity=similarity_between_comments_cat_appended[i, j]), rownames = T, filter="none", selection="none", options = list(pageLength = 20, scrollX=T), caption=paste("Commentaires les plus similaire au code: ", rownames(reduced_categories_space)[j], ""))
+```
+
+
+## Comparaison entre mots et commentaires
+```{r}
+query = "police fraude"
+
+clean_query = myTextCleaner(query) %>% myTextTokenizer(text = ., charNgram = 0, myFrenchStopwords = NULL, to_stemm = F, language = "fr", spelling_checker = F, remove_accent = T, min_token_length = 0) %>% unlist() %>% unique() %>% paste(., collapse = " ")
+
+
+query_preprocessed = text_preprocessing(text_in_claims = clean_query, myFrenchStopwords = NULL, my_doc_count_min = 0, my_doc_proportion_max = 1, to_stemm = T, language = "fr", spelling_checker = F, charNgram = 4, remove_accent = T, min_token_length = 0) #sapply(unique_word_in_comments, function(x) paste("dummy", x, "dummy", sep = " ")) %>% 
+
+
+reduced_query_space_svdFromComments = getLatentVectorsOfComments(vectorizedCorpus = query_preprocessed$vectorizedCorpus, svd_v = svd_appended$v, svd_d = svd_appended$d, originalFeatures = svd_appended$original.features)
+rownames(reduced_query_space_svdFromComments) = query
+
+
+
+similarity_between_comments_query=text2vec::sim2(x = as.matrix(reduced_comments_space_from_svdAppended), y = as.matrix(reduced_query_space_svdFromComments), method = "cosine", norm = "none") 
+
+i=order(similarity_between_comments_query[,1], decreasing = T)[1:1000]
+#result=data.frame(category=colnames(similarity_between_comments_query), similarity=similarity_between_comments_query[i,])
+
+
+DT::datatable(data = data.frame(id=rownames(similarity_between_comments_query)[i], categorie_appel_clean = categorie_appel[i], comments_from_agents[i,c("Commentaires_de_lagent")], similarity=similarity_between_comments_query[i,1]), rownames = T, filter="none", selection="none", options = list(pageLength = 20, scrollX=T), caption=paste("Commentaires les plus similaires à la requête : ", query, ""))
+```
+
+# Modèle LSA combiné simple
