@@ -65,12 +65,14 @@ comments_from_agents = comments_from_agents[comments_from_agents$Langue == "Fran
 comments_from_agents = comments_from_agents[nchar(comments_from_agents$Commentaires_de_lagent) > 3 , ]
 
 
-text_preprocessing_results = text_preprocessing(text_in_claims = comments_from_agents$Commentaires_de_lagent, myFrenchStopwords = myFrenchStopwords, my_doc_count_min = 1, my_doc_proportion_max = 1, to_stemm = T, language = "fr", spelling_checker = F, charNgram = 4, remove_accent = T, min_token_length = 3)
+#text_preprocessing_results = text_preprocessing(text_in_claims = comments_from_agents$Commentaires_de_lagent, myFrenchStopwords = myFrenchStopwords, my_doc_count_min = 1, my_doc_proportion_max = 1, to_stemm = T, language = "fr", spelling_checker = F, charNgram = 4, remove_accent = T, min_token_length = 3)
 
 
-#text_preprocessing_results_lemme = myTextCleaner(comments_from_agents$Commentaires_de_lagent) %>% myTextTokenizer(text = ., charNgram = 4, myFrenchStopwords = myFrenchStopwords, to_lemmetize = T, to_stemm = F, language = "fr", spelling_checker = F, remove_accent = T, min_token_length = 3, dictionary = fr_dic, token_to_lemme = token_to_lemme_fr) %>% myTextVectorizer(tokenizedCorpus = ., my_doc_count_min = 1, my_doc_proportion_max = 1)
+tokenizedCorpus = myTextCleaner(comments_from_agents$Commentaires_de_lagent) %>% myTextTokenizer(text = ., charNgram = 4, myFrenchStopwords = myFrenchStopwords, to_lemmetize = T, to_stemm = T, language = "fr", spelling_checker = F, remove_accent = T, min_token_length = 3, dictionary = NULL, token_to_lemme = token_to_lemme_fr) 
 
+vectorizedCorpus = myTextVectorizer(tokenizedCorpus = tokenizedCorpus, my_doc_count_min = 1, my_doc_proportion_max = 1)
 
+text_preprocessing_results = list(tokenizedCorpus=tokenizedCorpus, vectorizedCorpus=vectorizedCorpus)
 ```
 
 
@@ -118,9 +120,9 @@ unique_word_in_comments = myTextCleaner(comments_from_agents$Commentaires_de_lag
 
 #spelling_correcter_2(tokenizedCorpus = quanteda::tokens(c("naisance")), dic_speller = fr_dic)
 
-unique_word_preprocessed = text_preprocessing(text_in_claims = unique_word_in_comments, myFrenchStopwords = NULL, my_doc_count_min = 0, my_doc_proportion_max = 1, to_stemm = T, language = "fr", spelling_checker = F, charNgram = 4, remove_accent = F, min_token_length = 0) #sapply(unique_word_in_comments, function(x) paste("dummy", x, "dummy", sep = " ")) %>% 
+#unique_word_preprocessed = text_preprocessing(text_in_claims = unique_word_in_comments, myFrenchStopwords = NULL, my_doc_count_min = 0, my_doc_proportion_max = 1, to_stemm = T, language = "fr", spelling_checker = F, charNgram = 4, remove_accent = F, min_token_length = 0) #sapply(unique_word_in_comments, function(x) paste("dummy", x, "dummy", sep = " ")) %>% 
 
-
+unique_word_vectorized = myTextCleaner(unique_word_in_comments) %>% myTextTokenizer(text = ., charNgram = 4, myFrenchStopwords = NULL, to_lemmetize = F, to_stemm = T, language = "fr", spelling_checker = F, remove_accent = F, min_token_length = 0, dictionary = NULL, token_to_lemme = NULL) %>% myTextVectorizer(tokenizedCorpus = ., my_doc_count_min = 0, my_doc_proportion_max = 1)
 ```
 
 
@@ -135,7 +137,7 @@ reduced_categories_space = getLatentVectorsOfComments(vectorizedCorpus = vector_
 reduced_comments_space = getLatentVectorsOfComments(vectorizedCorpus = text_preprocessing_results$vectorizedCorpus, svd_v = svdFromWiki300$v, svd_d = svdFromWiki300$d, originalFeatures = svdFromWiki300$original.features)
  
 
-reduced_word_space = getLatentVectorsOfComments(vectorizedCorpus = unique_word_preprocessed$vectorizedCorpus, svd_v = svdFromWiki300$v, svd_d = svdFromWiki300$d, originalFeatures = svdFromWiki300$original.features)
+reduced_word_space = getLatentVectorsOfComments(vectorizedCorpus = unique_word_vectorized, svd_v = svdFromWiki300$v, svd_d = svdFromWiki300$d, originalFeatures = svdFromWiki300$original.features)
 rownames(reduced_word_space) = unique_word_in_comments
 
 ```
@@ -212,7 +214,7 @@ svd_comments$original.features = text_preprocessing_results$vectorizedCorpus %>%
 
 reduced_categories_space_from_svdComments = getLatentVectorsOfComments(vectorizedCorpus = vector_of_categorieAppel, svd_v = svd_comments$v, svd_d = svd_comments$d, originalFeatures = svd_comments$original.features)
 
-reduced_word_space_from_svdComments = getLatentVectorsOfComments(vectorizedCorpus = unique_word_preprocessed$vectorizedCorpus, svd_v = svd_comments$v, svd_d = svd_comments$d, originalFeatures = svd_comments$original.features)
+reduced_word_space_from_svdComments = getLatentVectorsOfComments(vectorizedCorpus = unique_word_vectorized, svd_v = svd_comments$v, svd_d = svd_comments$d, originalFeatures = svd_comments$original.features)
 rownames(reduced_word_space_from_svdComments) = unique_word_in_comments
 
 reduced_comments_space_from_svdComment = getLatentVectorsOfComments(vectorizedCorpus = text_preprocessing_results$vectorizedCorpus, svd_v = svd_comments$v, svd_d = svd_comments$d, originalFeatures = svd_comments$original.features)
@@ -293,7 +295,7 @@ svd_appended = list(d = d_appended, v=as.matrix(v_appended), original.features =
 
 reduced_categories_space_from_svdAppended = getLatentVectorsOfComments(vectorizedCorpus = vector_of_categorieAppel, svd_v = svd_appended$v, svd_d = svd_appended$d, originalFeatures = svd_appended$original.features)
 
-reduced_word_space_from_svdAppended = getLatentVectorsOfComments(vectorizedCorpus = unique_word_preprocessed$vectorizedCorpus, svd_v = svd_appended$v, svd_d = svd_appended$d, originalFeatures = svd_appended$original.features)
+reduced_word_space_from_svdAppended = getLatentVectorsOfComments(vectorizedCorpus = unique_word_vectorized, svd_v = svd_appended$v, svd_d = svd_appended$d, originalFeatures = svd_appended$original.features)
 rownames(reduced_word_space_from_svdAppended) = unique_word_in_comments
 
 reduced_comments_space_from_svdAppended = getLatentVectorsOfComments(vectorizedCorpus = text_preprocessing_results$vectorizedCorpus, svd_v = svd_appended$v, svd_d = svd_appended$d, originalFeatures = svd_appended$original.features)
@@ -303,9 +305,49 @@ reduced_comments_space_from_svdAppended = getLatentVectorsOfComments(vectorizedC
 ## Comparaison entre mots et catégories
 ```{r}
 similarity_between_cat_word_append=text2vec::sim2(x = as.matrix(reduced_word_space_from_svdAppended), y=as.matrix(reduced_categories_space_from_svdAppended), method = "cosine", norm = "none") #%>% 
-View((similarity_between_cat_word_append), title = "appended_LSA")
+View((similarity_between_cat_word_append), title = "appended_LSA_1")
 
 ```
+
+```{r}
+similarity_between_cat_word_append_long = reshape2::melt(data = similarity_between_cat_word_append) %>% set_colnames(c("word", "category", "correlation"))
+
+top.word.by.event <- similarity_between_cat_word_append_long %>%
+  dplyr::group_by(category) %>%
+  dplyr::top_n(10, correlation) %>%
+  dplyr::ungroup() %>%
+  dplyr::arrange(category, desc(correlation))
+
+similarity_between_cat_word_append_top = similarity_between_cat_word_append[rownames(similarity_between_cat_word_append) %in% unique(top.word.by.event$word), ]
+
+reduced_word_space_from_svdAppended_top = reduced_word_space_from_svdAppended[rownames(reduced_word_space_from_svdAppended) %in% unique(top.word.by.event$word), ]
+
+plot(reduced_word_space_from_svdAppended_top[, c(1, 201)])
+```
+
+
+```{r}
+
+
+
+#plot
+top.word.by.event %>%
+  #mutate(topic = reorder(feature, chi2)) %>%
+  ggplot(data = ., aes(x = word, y = correlation)) +
+  #ggplot(data = ., aes(x = reorder(topic, topic.weight), y = topic.weight)) +
+  geom_col(show.legend = T, fill="black", color="black", size=0.1)+
+  facet_wrap(~ category, scales = "free", ncol=6) +
+  coord_flip()+
+  #geom_text(color = "black",  size=1, hjust=0, vjust=0)+
+  ggtitle("Top-10 words by category")+
+  theme_light(base_size = 6)+
+  theme(axis.text=element_text(size=6, colour = "black"),
+        axis.title=element_text(size=6, colour = "black"),
+        title=element_text(size=6, colour = "black"))
+
+```
+
+
 
 ## Comparaison entre catégories et commentaires
 ```{r}
@@ -325,10 +367,10 @@ DT::datatable(data = data.frame(categorie_appel_clean = categorie_appel[i], comm
 ```{r}
 query = "plainte fraude crime" #"fraude"  # insatisfaction
 
-clean_query = myTextCleaner(query) %>% myTextTokenizer(text = ., charNgram = 0, myFrenchStopwords = NULL, to_stemm = F, language = "fr", spelling_checker = F, remove_accent = T, min_token_length = 0) %>% unlist() %>% unique() %>% paste(., collapse = " ")
+clean_query = myTextCleaner(query) %>% myTextTokenizer(text = ., charNgram = 0, myFrenchStopwords = NULL, to_stemm = F, language = NULL, spelling_checker = F, remove_accent = T, min_token_length = 0, to_lemmetize = T, dictionary = NULL, token_to_lemme = token_to_lemme_fr) %>% unlist() %>% unique() %>% paste(., collapse = " ")
 
 
-query_preprocessed = text_preprocessing(text_in_claims = clean_query, myFrenchStopwords = NULL, my_doc_count_min = 0, my_doc_proportion_max = 1, to_stemm = T, language = "fr", spelling_checker = F, charNgram = 4, remove_accent = T, min_token_length = 0) #sapply(unique_word_in_comments, function(x) paste("dummy", x, "dummy", sep = " ")) %>% 
+query_preprocessed = text_preprocessing(text_in_claims = clean_query, myFrenchStopwords = NULL, my_doc_count_min = 0, my_doc_proportion_max = 1, to_stemm = T, language = "fr", spelling_checker = F, charNgram = 0, remove_accent = T, min_token_length = 0) #sapply(unique_word_in_comments, function(x) paste("dummy", x, "dummy", sep = " ")) %>% 
 
 
 reduced_query_space_svdFromComments = getLatentVectorsOfComments(vectorizedCorpus = query_preprocessed$vectorizedCorpus, svd_v = svd_appended$v, svd_d = svd_appended$d, originalFeatures = svd_appended$original.features)
