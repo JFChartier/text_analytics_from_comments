@@ -1,0 +1,383 @@
+---
+title: "Modélisation des commentaires des agents en assurance de la personne"
+author: "Jean-Francois Chartier"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    fig_width: 12
+    highlight: tango
+    theme: united
+    toc: yes
+    toc_float: yes
+    message: no
+  pdf_document:
+    toc: yes
+editor_options:
+  chunk_output_type: console
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, message=FALSE, warning=FALSE}
+library(magrittr)
+#library(data.table)
+library(stringr)
+library(quanteda)
+library(dplyr)
+library(qdapRegex)
+library(text2vec)
+require(tidyverse)
+require(rjson)
+
+#source("textPreprocessingFunctions.R")
+source("~/datalab-nlp/JF Chartier/SemanticModels/TextModeling/LSA/textPreprocessingFunctions.R")
+
+```
+
+```{r, message=FALSE, warning=FALSE}
+
+#svdFromWiki300 = readRDS("~/datalab-nlp/JF Chartier/Data/SemanticModels/matrixV_svdFromWiki300.rds")
+
+svdFromWiki300 = readRDS("~/datalab-nlp/JF Chartier/Data/SemanticModels/FrenchWikiTokensAnd4gramsNormed300SVD.rds")
+
+myFrenchStopwords = data.table::fread("~/datalab-nlp/JF Chartier/Data/SemanticModels/antidictionnaireFrancais.csv", header = F, encoding = "UTF-8")
+
+comments_from_agents = data.table::fread("~/datalab-nlp/JF Chartier/Data/text_analytics_from_comments/comments_from_calls_2020.csv", header = T, encoding = "UTF-8")
+
+fr_dic = hunspell::dictionary("~/datalab-nlp/JF Chartier/Data/SemanticModels/Dictionaries/fr_FR.dic")
+
+token_to_lemme_fr = readr::read_tsv('http://www.lexique.org/databases/Lexique383/Lexique383.tsv') %>% .[, c("ortho", "lemme")]
+#voir alternative morphalou https://github.com/chrplr/openlexicon/blob/master/datasets-info/Morphalou/README-Morphalou.md
+
+```
+
+
+```{r, message=FALSE, warning=FALSE}
+#french_dic = dictionary("~/.config/rstudio/dictionaries/languages-system/fr_FR.dic")
+#hunspell::list_dictionaries()
+
+
+comments_from_agents = comments_from_agents[comments_from_agents$Langue == "Français", ]
+comments_from_agents = comments_from_agents[nchar(comments_from_agents$Commentaires_de_lagent) > 3 , ]
+
+
+#text_preprocessing_results = text_preprocessing(text_in_claims = comments_from_agents$Commentaires_de_lagent, myFrenchStopwords = myFrenchStopwords, my_doc_count_min = 1, my_doc_proportion_max = 1, to_stemm = T, language = "fr", spelling_checker = F, charNgram = 4, remove_accent = T, min_token_length = 3)
+
+
+tokenizedCorpus = myTextCleaner(comments_from_agents$Commentaires_de_lagent) %>% myTextTokenizer(text = ., charNgram = 0, myFrenchStopwords = myFrenchStopwords, to_lemmetize = T, to_stemm = T, language = "fr", spelling_checker = F, remove_accent = T, min_token_length = 3, dictionary = NULL, token_to_lemme = token_to_lemme_fr, word_ngram = 1:2) 
+
+vectorizedCorpus = myTextVectorizer(tokenizedCorpus = tokenizedCorpus, my_doc_count_min = 3, my_doc_proportion_max = .5)
+
+text_preprocessing_results = list(tokenizedCorpus=tokenizedCorpus, vectorizedCorpus=vectorizedCorpus)
+```
+
+```{r, message=FALSE, warning=FALSE}
+categorie_appel = comments_from_agents$Categorie_dappel %>% tolower() %>% stringr::str_squish()
+# filtrer les categorie rares
+categorie_appel_freq = table(categorie_appel) %>% is_less_than(5) %>% table(categorie_appel)[.] %>% names(.) #%>% categorie_appel[categorie_appel %in% .]
+categorie_appel[categorie_appel %in% categorie_appel_freq] = "category_less_frequent_that_5"
+
+tokens_from_cat = lapply(unique(categorie_appel), function(x){
+  #x = unique(categorie_appel)[1]
+  #print(x)
+  #specificities = get_most_relevant_words(tokenizedCorpus = text_preprocessing_results$tokenizedCorpus, target = categorie_appel==x, minDocFrequency = 0, coefficient = "lr", min_specificity_score = 0)
+  
+  tokens_in_cat = c(text_preprocessing_results$tokenizedCorpus[categorie_appel==x]) %>% unlist()
+  #tokens_in_cat = tokens_in_cat[tokens_in_cat %in% specificities]
+  return(tokens_in_cat)
+})
+
+
+vector_of_categorieAppel = quanteda::dfm_group(text_preprocessing_results$vectorizedCorpus %>% quanteda::as.dfm(), groups= categorie_appel)
+
+```
+
+```{r, message=FALSE, warning=FALSE}
+
+#unique_word_in_comments = myTextCleaner(comments_from_agents$Commentaires_de_lagent) %>% myTextTokenizer(text = ., charNgram = 0, myFrenchStopwords = myFrenchStopwords, to_stemm = F, language = "fr", spelling_checker = F, remove_accent = T, min_token_length = 3) %>% unlist() %>% unique()
+
+# word speller ne fonctionne pas
+unique_word_in_comments = myTextCleaner(comments_from_agents$Commentaires_de_lagent) %>% myTextTokenizer(text = ., charNgram = 0, myFrenchStopwords = myFrenchStopwords, to_stemm = F, language = "fr", spelling_checker = F, remove_accent = T, min_token_length = 3, to_lemmetize = T, dictionary = fr_dic, token_to_lemme = token_to_lemme_fr, word_ngram = NULL) %>% unlist() %>% unique()
+
+
+#unique_word_preprocessed = text_preprocessing(text_in_claims = unique_word_in_comments, myFrenchStopwords = NULL, my_doc_count_min = 0, my_doc_proportion_max = 1, to_stemm = T, language = "fr", spelling_checker = F, charNgram = 4, remove_accent = F, min_token_length = 0) #sapply(unique_word_in_comments, function(x) paste("dummy", x, "dummy", sep = " ")) %>% 
+
+unique_word_vectorized = myTextCleaner(unique_word_in_comments) %>% myTextTokenizer(text = ., charNgram = 0, myFrenchStopwords = NULL, to_lemmetize = F, to_stemm = T, language = "fr", spelling_checker = F, remove_accent = F, min_token_length = 0, dictionary = NULL, token_to_lemme = NULL, word_ngram = NULL) %>% myTextVectorizer(tokenizedCorpus = ., my_doc_count_min = 0, my_doc_proportion_max = 1)
+```
+
+
+```{r, message=FALSE, warning=FALSE}
+
+reduced_categories_space = getLatentVectorsOfComments(vectorizedCorpus = vector_of_categorieAppel, svd_v = svdFromWiki300$v, svd_d = svdFromWiki300$d, originalFeatures = svdFromWiki300$original.features)
+
+reduced_comments_space = getLatentVectorsOfComments(vectorizedCorpus = text_preprocessing_results$vectorizedCorpus, svd_v = svdFromWiki300$v, svd_d = svdFromWiki300$d, originalFeatures = svdFromWiki300$original.features)
+ 
+
+reduced_word_space = getLatentVectorsOfComments(vectorizedCorpus = unique_word_vectorized, svd_v = svdFromWiki300$v, svd_d = svdFromWiki300$d, originalFeatures = svdFromWiki300$original.features)
+rownames(reduced_word_space) = unique_word_in_comments
+
+```
+
+
+```{r, message=FALSE, warning=FALSE}
+svd_comments = RSpectra::svds(text_preprocessing_results$vectorizedCorpus %>% text2vec::normalize(., "l2"), k = 200)
+svd_comments$original.features = text_preprocessing_results$vectorizedCorpus %>% colnames()
+
+reduced_categories_space_from_svdComments = getLatentVectorsOfComments(vectorizedCorpus = vector_of_categorieAppel, svd_v = svd_comments$v, svd_d = svd_comments$d, originalFeatures = svd_comments$original.features)
+
+reduced_word_space_from_svdComments = getLatentVectorsOfComments(vectorizedCorpus = unique_word_vectorized, svd_v = svd_comments$v, svd_d = svd_comments$d, originalFeatures = svd_comments$original.features)
+rownames(reduced_word_space_from_svdComments) = unique_word_in_comments
+
+reduced_comments_space_from_svdComment = getLatentVectorsOfComments(vectorizedCorpus = text_preprocessing_results$vectorizedCorpus, svd_v = svd_comments$v, svd_d = svd_comments$d, originalFeatures = svd_comments$original.features)
+
+```
+
+
+```{r, message=FALSE, warning=FALSE}
+#v_appended = cbind(svd_comments$v, svdFromWiki300$v[svdFromWiki300$original.features %in% svd_comments$original.features, ])
+
+rownames(svd_comments$v) = svd_comments$original.features
+rownames(svdFromWiki300$v) = svdFromWiki300$original.features
+
+v_appended = merge(x = svd_comments$v, by="row.names", all.x = T, y = svdFromWiki300$v[,1:100], all.y=T, sort = FALSE)
+v_appended[is.na(v_appended)] = 0
+
+features_appended = v_appended$Row.names
+v_appended$Row.names=NULL
+#ici c'est très important de normer les vecteurs d, car il ont une magnitude très différente
+d_appended = c(normVector(svd_comments$d), normVector(svdFromWiki300$d[1:100]))
+
+svd_appended = list(d = d_appended, v=as.matrix(v_appended), original.features = features_appended)
+
+```
+
+```{r, message=FALSE, warning=FALSE}
+# vectorizedCorpus = quanteda::as.dfm(vector_of_categorieAppel)
+# vectorizedCorpus = quanteda::dfm_match(vector_of_categorieAppel, features = svd_appended$original.features)
+#  myReducedQueryVector <-  vectorizedCorpus %*% svd_appended$v %*% solve(diag((svd_appended$d)))  
+# 
+
+reduced_categories_space_from_svdAppended = getLatentVectorsOfComments(vectorizedCorpus = vector_of_categorieAppel, svd_v = svd_appended$v, svd_d = svd_appended$d, originalFeatures = svd_appended$original.features)
+
+reduced_word_space_from_svdAppended = getLatentVectorsOfComments(vectorizedCorpus = unique_word_vectorized, svd_v = svd_appended$v, svd_d = svd_appended$d, originalFeatures = svd_appended$original.features)
+rownames(reduced_word_space_from_svdAppended) = unique_word_in_comments
+
+reduced_comments_space_from_svdAppended = getLatentVectorsOfComments(vectorizedCorpus = text_preprocessing_results$vectorizedCorpus, svd_v = svd_appended$v, svd_d = svd_appended$d, originalFeatures = svd_appended$original.features)
+
+```
+
+```{r, message=FALSE, warning=FALSE}
+
+reduced_categories_space_from_svdAppended_top = reduced_categories_space_from_svdAppended[rownames(reduced_categories_space_from_svdAppended) %in% (table(categorie_appel) %>% sort(., decreasing = T) %>% .[1:30] %>% names()), ]
+
+similarity_between_cat_word_append=text2vec::sim2(x = as.matrix(reduced_word_space_from_svdAppended), y=as.matrix(reduced_categories_space_from_svdAppended_top), method = "cosine", norm = "none") #%>% 
+#View((similarity_between_cat_word_append), title = "appended_LSA_7")
+
+```
+
+# Analyse des spécificités lexicales associées aux catégories de commentaires
+Seulement les 30 catégories les plus fréquentes sont affichées
+
+## Poids des catégories
+
+```{r, fig.height=12}
+p = table(categorie_appel) %>% sort(., decreasing = T) %>% .[1:30] %>% as.data.frame() %>% 
+  ggplot(data = ., aes(x = categorie_appel, y = Freq)) +
+  geom_bar(stat="identity")+
+  ggtitle("Nombre de commentaires par catégorie d'appel")+
+  xlab("Top-30 Catégories d'appel")+
+  ylab("Nombre de commentaires")+
+  coord_flip()+
+  theme(axis.text=element_text(size=10, colour = "black"),
+        axis.title=element_text(size=10, colour = "black"),
+        title=element_text(size=10, colour = "black"))
+
+plotly::ggplotly(p)
+```
+
+
+## Mots spécificités des catégories
+ 
+```{r, message=FALSE, warning=FALSE, fig.width = 12, fig.height=36}
+similarity_between_cat_word_append_long = reshape2::melt(data = similarity_between_cat_word_append) %>% set_colnames(c("word", "category", "correlation"))
+
+top.word.by.cat <- similarity_between_cat_word_append_long %>%
+  dplyr::group_by(category) %>%
+  dplyr::top_n(15, correlation) %>%
+  dplyr::ungroup() %>%
+  dplyr::arrange(category, desc(correlation))
+
+
+p = top.word.by.cat %>%
+  #mutate(topic = reorder(word, correlation)) %>%
+  ggplot(data = ., aes(x = tidytext::reorder_within(word, correlation, within = category), y = correlation, fill = category)) +
+  #ggplot(data = ., aes(x = word, y = correlation, fill = category)) +
+  
+  geom_col(show.legend = F, color="black", fill="blue", size=0.1)+
+  facet_wrap(~ category, ncol=3, scale="free_y") + #scales = "free"
+  coord_flip()+
+  tidytext::scale_x_reordered() +
+  #geom_text(color = "black",  size=1, hjust=0, vjust=0)+
+  ggtitle("Top-15 mots les plus spécifiques par catégorie")+
+  #theme_light(base_size = 6)+
+  theme(axis.text=element_text(size=10, colour = "black"),
+        axis.title=element_text(size=10, colour = "black"),
+        title=element_text(size=10, colour = "black"))+
+  theme(legend.position = "none") 
+
+
+plotly::ggplotly(p)
+
+```
+
+
+```{r, message=FALSE, warning=FALSE, eval=F}
+
+# set.seed(42)
+# top.word.by.cat$correlation2 = top.word.by.cat$correlation^2
+# ggplot(top.word.by.cat, aes(label = word, size = correlation2, color=category)) +
+#   ggwordcloud::geom_text_wordcloud_area() +
+#   scale_size_area(max_size = 15) +
+#   theme_minimal() +
+#   facet_wrap(~category, scales = "free", ncol=4)
+```
+
+```{r, message=FALSE, warning=FALSE, val=F}
+# library(Rtsne)
+# set.seed(9)
+# 
+# pca_x = prcomp(reduced_word_space_from_svdAppended, center = T, scale. = T)
+# 
+# #incredible tse!
+# tsne.word= Rtsne::Rtsne(reduced_word_space_from_svdAppended, check_duplicates=FALSE, pca=F,perplexity=50, theta=0.05, dims=2, pca_center=F, pca_scale=F, exaggeration_factor=12, stop_lying_iter=400, max_iter=1500, num_threads=6)
+# 
+# tsne.word.1= Rtsne::Rtsne(reduced_word_space_from_svdAppended, check_duplicates=FALSE, pca=F,perplexity=10, theta=0.5, dims=2, pca_center=F, pca_scale=F, exaggeration_factor=12, stop_lying_iter=400, max_iter=1500, num_threads=6)
+# 
+# tsne.word.2= Rtsne::Rtsne(reduced_word_space_from_svdAppended, check_duplicates=FALSE, pca=T, perplexity=50, theta=0.5, dims=2, pca_center=T, pca_scale=T, exaggeration_factor=12, stop_lying_iter=400, max_iter=1500, num_threads=6)
+# 
+# tsne.word.3= Rtsne::Rtsne(reduced_word_space_from_svdAppended, check_duplicates=FALSE, pca=T, perplexity=5, theta=0.5, dims=2, pca_center=T, pca_scale=T, exaggeration_factor=12, stop_lying_iter=400, max_iter=1500, num_threads=6)
+# 
+# tsne.word.4= Rtsne::Rtsne(reduced_word_space_from_svdAppended, check_duplicates=FALSE, pca=T, perplexity=30, theta=0.5, dims=2, pca_center=T, pca_scale=T, exaggeration_factor=24, stop_lying_iter=400, max_iter=1500, num_threads=6)
+# 
+# 
+# #stop_lying_iter=40000, max_iter=150000
+# 
+# #saveRDS(tsne.word,paste0("tsne_doc.50.expand12.norm.theta05.late40k.withSVD15.150k.", Sys.Date(),".rds"))
+# 
+# ggplot2::qplot(tsne.word.4$Y[,1], tsne.word.4$Y[,2],main = "t-Distributed Stochastic Neighbor Embedding of Words", xlab = "Dimension x", ylab = "Dimension y")
+
+
+
+
+```
+
+
+```{r, , message=FALSE, warning=FALSE, eval=F}
+# tsne.comment.1= Rtsne::Rtsne(reduced_comments_space_from_svdAppended, check_duplicates=FALSE, pca=T, perplexity=30, theta=0.5, dims=2, pca_center=T, pca_scale=T, exaggeration_factor=24, stop_lying_iter=400, max_iter=1500, num_threads=6)
+# 
+# tsne.comment.2= Rtsne::Rtsne(reduced_comments_space_from_svdAppended, check_duplicates=FALSE, pca=T, perplexity=30, theta=0.5, dims=2, pca_center=T, pca_scale=T, exaggeration_factor=12, stop_lying_iter=400, max_iter=1500, num_threads=6)
+# 
+# 
+# tsne.comment.3 = Rtsne::Rtsne(reduced_comments_space_from_svdAppended, check_duplicates=FALSE, pca=F, perplexity=30, theta=0.5, dims=2, pca_center=T, pca_scale=T, exaggeration_factor=12, stop_lying_iter=400, max_iter=1500, num_threads=2)
+# 
+# 
+# ggplot2::qplot(tsne.comment.2$Y[,1], tsne.comment.2$Y[,2], color= categorie_appel, main = "t-Distributed Stochastic Neighbor Embedding of Words", xlab = "Dimension x", ylab = "Dimension y")
+```
+
+
+
+
+```{r, message=FALSE, warning=FALSE}
+#tsne.comment.2= Rtsne::Rtsne(reduced_comments_space_from_svdAppended, check_duplicates=FALSE, pca=T, perplexity=30, theta=0.5, dims=2, pca_center=T, pca_scale=T, exaggeration_factor=12, stop_lying_iter=400, max_iter=1500, num_threads=6)
+
+#sim_mat=apcluster::linSimMat(x = reduced_comments_space_from_svdAppended)
+#reduced_comments_space_from_svdAppended_x = RSpectra::svds(as.matrix(reduced_comments_space_from_svdAppended), k = 200)
+
+#sim_mat = text2vec::sim2(x = as.matrix(reduced_comments_space_from_svdAppended), y=as.matrix(reduced_comments_space_from_svdAppended), method = "cosine", norm = "none")
+#comment_clusters_ap = apcluster::apcluster(s = sim_mat, seed=9)
+
+
+#comment_clusters_km = kmeans(reduced_comments_space_from_svdAppended, centers = 40, iter.max = 500, nstart = 5)
+#comment_clusters_km_30 = kmeans(reduced_comments_space_from_svdAppended, centers = 30, iter.max = 500, nstart = 5)
+
+#ggplot2::qplot(tsne.comment.2$Y[,1], tsne.comment.2$Y[,2], color= factor(comment_clusters_km_30$cluster), main = "t-Distributed Stochastic Neighbor Embedding of Words", xlab = "Dimension x", ylab = "Dimension y")
+```
+
+
+# Analyse des spécificités lexciales associées à des clusters de commentaires
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(1)
+comment_clusters_km_30 = kmeans(reduced_comments_space_from_svdAppended, centers = 30, iter.max = 500, nstart = 5)
+
+```
+
+
+## Poids des regroupements
+
+```{r, fig.height=12}
+p = table(comment_clusters_km_30$cluster) %>% as.data.frame() %>% set_colnames(c("regroupement", "Freq")) %>% 
+  ggplot(data = ., aes(x = regroupement, y = Freq)) +
+  geom_bar(stat="identity")+
+  ggtitle("Nombre de commentaires par regroupement d'appel")+
+  xlab("30 regroupements d'appel")+
+  ylab("Nombre de commentaires")+
+  coord_flip()+
+  theme(axis.text=element_text(size=10, colour = "black"),
+        axis.title=element_text(size=10, colour = "black"),
+        title=element_text(size=10, colour = "black"))
+
+plotly::ggplotly(p)
+```
+
+
+## Mots spécifiques aux regroupements
+```{r, message=FALSE, warning=FALSE, fig.width = 12, fig.height=36}
+
+similarity_between_word_cluster=text2vec::sim2(x = as.matrix(reduced_word_space_from_svdAppended), y=(comment_clusters_km_30$centers), method = "cosine", norm = "none") 
+
+similarity_between_word_cluster_long = reshape2::melt(data = similarity_between_word_cluster) %>% set_colnames(c("word", "cluster", "correlation"))
+
+top.word.by.cluster <- similarity_between_word_cluster_long %>%
+  dplyr::group_by(cluster) %>%
+  dplyr::top_n(15, correlation) %>%
+  dplyr::ungroup() %>%
+  dplyr::arrange(cluster, desc(correlation))
+
+
+p = top.word.by.cluster %>%
+  #mutate(topic = reorder(word, correlation)) %>%
+  ggplot(data = ., aes(x = tidytext::reorder_within(word, correlation, within = cluster), y = correlation, fill = cluster)) +
+  #ggplot(data = ., aes(x = word, y = correlation, fill = category)) +
+  
+  geom_col(show.legend = F, color="black", fill="blue", size=0.1)+
+  facet_wrap(~ cluster, ncol=3, scale="free_y") + #scales = "free"
+  coord_flip()+
+  tidytext::scale_x_reordered() +
+  #geom_text(color = "black",  size=1, hjust=0, vjust=0)+
+  ggtitle("Top-15 mots les plus spécifiques par regroupement")+
+  #theme_light(base_size = 6)+
+  theme(axis.text=element_text(size=10, colour = "black"),
+        axis.title=element_text(size=10, colour = "black"),
+        title=element_text(size=10, colour = "black"))
+
+
+plotly::ggplotly(p)
+```
+
+```{r}
+
+# mylogit <- glm(cluster ~ ., data = data.frame(reduced_comments_space_from_svdAppended, cluster=factor(paste("cluster", comment_clusters_km_30$cluster, sep = "_"))), family = "binomial")
+# logit_specificities = predict(mylogit, newdata = reduced_comments_space_from_svdAppended, type = "response")
+# 
+# 
+# logit_specificities = nnet::multinom(cluster ~ ., data = data.frame(reduced_comments_space_from_svdAppended, cluster=factor(paste("cluster", comment_clusters_km_30$cluster, sep = "_"))))
+# 
+# str(mylogit$)
+```
+

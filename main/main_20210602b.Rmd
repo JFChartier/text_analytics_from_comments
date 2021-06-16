@@ -316,9 +316,25 @@ ggplot2::qplot(tsne.comment.2$Y[,1], tsne.comment.2$Y[,2], color= categorie_appe
 
 ### Classification des commentaires
 ```{r}
-sim_mat=apcluster::linSimMat(x = reduced_comments_space_from_svdAppended)
+#sim_mat=apcluster::linSimMat(x = reduced_comments_space_from_svdAppended)
+reduced_comments_space_from_svdAppended_x = RSpectra::svds(as.matrix(reduced_comments_space_from_svdAppended), k = 200)
+
+sim_mat = text2vec::sim2(x = as.matrix(reduced_comments_space_from_svdAppended), y=as.matrix(reduced_comments_space_from_svdAppended), method = "cosine", norm = "none")
 comment_clusters_ap = apcluster::apcluster(s = sim_mat, seed=9)
+
+
+comment_clusters_km = kmeans(reduced_comments_space_from_svdAppended, centers = 40, iter.max = 500, nstart = 5)
+comment_clusters_km_30 = kmeans(reduced_comments_space_from_svdAppended, centers = 30, iter.max = 500, nstart = 5)
+
+ggplot2::qplot(tsne.comment.2$Y[,1], tsne.comment.2$Y[,2], color= factor(comment_clusters_km_30$cluster), main = "t-Distributed Stochastic Neighbor Embedding of Words", xlab = "Dimension x", ylab = "Dimension y")
 ```
+
+
+
+```{r}
+
+```
+
 
 
 
